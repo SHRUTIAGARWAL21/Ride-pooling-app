@@ -1,0 +1,42 @@
+// schema.prisma — the single source of truth for our database shape.
+// Prisma reads this file to (1) create/change tables via "migrations" and
+// (2) generate a type-safe client we call from JavaScript.
+
+// ---- generator: what Prisma builds FROM this schema ----
+generator client {
+  // Build the JavaScript client we import as "@prisma/client".
+  provider = "prisma-client-js"
+}
+
+// ---- datasource: WHERE the database is and what kind it is ----
+datasource db {
+  provider = "postgresql"
+  // Read the connection string from the environment, never hard-coded.
+  url      = env("DATABASE_URL")
+}
+
+// ---- enums: a fixed set of allowed values ----
+// A user is exactly one of these. The database rejects any other value.
+enum Role {
+  rider
+  driver
+}
+
+// ---- models: each model becomes one table ----
+model User {
+  // @id marks the primary key. @default(uuid()) auto-generates a unique id.
+  id           String   @id @default(uuid())
+  name         String
+  // @unique means no two users can share an email; the DB enforces it.
+  email        String   @unique
+  phone        String
+  // We NEVER store the raw password. We store a bcrypt hash of it.
+  passwordHash String
+  role         Role
+  // @default(now()) stamps the row with the creation time automatically.
+  createdAt    DateTime @default(now())
+
+  // @@map renames the table to snake_case "users" (Postgres convention),
+  // while our JavaScript keeps the tidy name "User".
+  @@map("users")
+}

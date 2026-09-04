@@ -1,0 +1,10 @@
+# Dependencies — huge, and rebuildable from package.json. Never commit.
+node_modules/
+
+# Secrets — API keys, passwords, tokens. NEVER commit these.
+.env
+.env.local
+
+# Logs and OS noise
+*.log
+.DS_Store

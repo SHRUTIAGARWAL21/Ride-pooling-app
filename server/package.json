@@ -1,0 +1,21 @@
+{
+  "name": "ride-pooling-server",
+  "version": "1.0.0",
+  "description": "Backend for the in-trip ride-pooling app",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "dev": "node --watch --env-file=.env src/index.js",
+    "start": "node --env-file=.env src/index.js"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.19.3",
+    "bcryptjs": "^3.0.3",
+    "cors": "^2.8.5",
+    "express": "^4.21.2",
+    "jsonwebtoken": "^9.0.3"
+  },
+  "devDependencies": {
+    "prisma": "^6.19.3"
+  }
+}

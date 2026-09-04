@@ -1,0 +1,36 @@
+# docker-compose.yml — describes the background services our app needs.
+# You run "docker compose up -d" and Docker downloads and starts them for you.
+# Nothing is installed system-wide; it all lives inside containers.
+
+services:
+  # ---- PostgreSQL with the PostGIS extension already built in ----
+  db:
+    # An official image that is Postgres 16 PLUS the PostGIS map extension.
+    # We need PostGIS for the "cars within 5km" geo pre-filter (PRD Phase 3).
+    image: postgis/postgis:16-3.4
+    container_name: ridepool-db
+    restart: unless-stopped
+    environment:
+      # These three create the database and its login on first startup.
+      POSTGRES_USER: ridepool
+      POSTGRES_PASSWORD: devpassword
+      POSTGRES_DB: ridepool
+    ports:
+      # Map port 5432 inside the container to 5432 on your machine,
+      # so Prisma (running outside Docker) can reach the database.
+      - "5432:5432"
+    volumes:
+      # Keep the data on disk so it survives container restarts.
+      - ridepool_pgdata:/var/lib/postgresql/data
+
+  # ---- Redis, for live car locations (we use this in a later step) ----
+  redis:
+    image: redis:7-alpine
+    container_name: ridepool-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+
+# Named storage that Docker manages for us; this is where Postgres data lives.
+volumes:
+  ridepool_pgdata:
