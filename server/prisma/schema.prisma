@@ -2,41 +2,108 @@
 // Prisma reads this file to (1) create/change tables via "migrations" and
 // (2) generate a type-safe client we call from JavaScript.
 
-// ---- generator: what Prisma builds FROM this schema ----
 generator client {
-  // Build the JavaScript client we import as "@prisma/client".
   provider = "prisma-client-js"
 }
 
-// ---- datasource: WHERE the database is and what kind it is ----
 datasource db {
   provider = "postgresql"
-  // Read the connection string from the environment, never hard-coded.
   url      = env("DATABASE_URL")
 }
 
 // ---- enums: a fixed set of allowed values ----
-// A user is exactly one of these. The database rejects any other value.
 enum Role {
   rider
   driver
 }
 
-// ---- models: each model becomes one table ----
+// Every stage a ride moves through. The DB rejects any other value.
+enum RideStatus {
+  requested // rider asked; no driver yet
+  accepted // a driver took it; not moving yet
+  in_progress // ride has started
+  completed // finished
+  cancelled // called off
+}
+
+// The kinds of vehicle a rider can book. A driver (later) will own one of these.
+enum VehicleType {
+  car
+  auto
+  bike
+}
+
 model User {
-  // @id marks the primary key. @default(uuid()) auto-generates a unique id.
   id           String   @id @default(uuid())
   name         String
-  // @unique means no two users can share an email; the DB enforces it.
   email        String   @unique
   phone        String
-  // We NEVER store the raw password. We store a bcrypt hash of it.
   passwordHash String
   role         Role
-  // @default(now()) stamps the row with the creation time automatically.
   createdAt    DateTime @default(now())
 
-  // @@map renames the table to snake_case "users" (Postgres convention),
-  // while our JavaScript keeps the tidy name "User".
+  // ---- BACK-REFERENCES (virtual, not real columns) ----
+  drivenRides    Ride[] // rides where this user is the DRIVER
+  ridePassengers RidePassenger[] // rows where this user rides as a PASSENGER
+
   @@map("users")
+}
+
+model Ride {
+  id String @id @default(uuid())
+
+  // ---- the DRIVER link (optional: empty until a driver accepts) ----
+  driverId String?
+  driver   User?   @relation(fields: [driverId], references: [id], onDelete: SetNull)
+
+  status      RideStatus @default(requested)
+  isShareable Boolean    @default(false)
+
+  // Which service the rider chose. @default(car) backfills the row that
+  // already existed before this column was added (safe, no data loss);
+  // new rides always set this explicitly in code.
+  vehicleType VehicleType @default(car)
+
+  pickupLat      Float
+  pickupLng      Float
+  pickupAddress  String
+  dropoffLat     Float
+  dropoffLng     Float
+  dropoffAddress String
+
+  routePolyline String? @db.Text
+
+  // MONEY uses Decimal, never Float. (10,2) = up to 10 digits, 2 after the point.
+  fareTotal Decimal @db.Decimal(10, 2)
+
+  createdAt   DateTime  @default(now())
+  startedAt   DateTime?
+  completedAt DateTime?
+
+  passengers RidePassenger[]
+
+  @@map("rides")
+}
+
+// One row per rider in a ride. A solo ride has one row; a pooled ride has
+// several. This is why riders are NOT a column on Ride — a ride can hold many.
+model RidePassenger {
+  id String @id @default(uuid())
+
+  rideId String
+  ride   Ride   @relation(fields: [rideId], references: [id], onDelete: Cascade)
+
+  riderId String
+  rider   User   @relation(fields: [riderId], references: [id], onDelete: Cascade)
+
+  pickupLat  Float
+  pickupLng  Float
+  dropoffLat Float
+  dropoffLng Float
+
+  fareShare Decimal? @db.Decimal(10, 2)
+
+  joinedAt DateTime @default(now())
+
+  @@map("ride_passengers")
 }
