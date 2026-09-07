@@ -1,11 +1,21 @@
-// The entry point. Its only job: take the built app and start listening.
+// The entry point. It wires Express + Socket.io onto ONE HTTP server and starts it.
 
+import http from "node:http"; // Node's built-in HTTP module
 import { app } from "./app.js";
 import { config } from "./config/env.js";
+import { initSocket } from "./sockets/index.js";
 
-// Start the server. It opens a network port and waits for requests.
-// The callback runs once, after the port is open and ready.
-app.listen(config.port, () => {
+// Create the HTTP server ourselves, wrapping the Express app. (app.listen()
+// would create one internally, but then Socket.io could not share it.)
+// "app" is passed as the request handler for all normal HTTP requests.
+const server = http.createServer(app);
+
+// Attach the live line (Socket.io) to the SAME server, so both share port 4000.
+initSocket(server);
+
+// Start listening. Note we call server.listen(...), NOT app.listen(...) now.
+server.listen(config.port, () => {
   console.log(`Server is running at http://localhost:${config.port}`);
   console.log(`Health check: http://localhost:${config.port}/api/health`);
+  console.log(`Socket.io is attached on the same port`);
 });

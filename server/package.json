@@ -13,9 +13,11 @@
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.5",
     "express": "^4.21.2",
-    "jsonwebtoken": "^9.0.3"
+    "jsonwebtoken": "^9.0.3",
+    "socket.io": "^4.8.3"
   },
   "devDependencies": {
-    "prisma": "^6.19.3"
+    "prisma": "^6.19.3",
+    "socket.io-client": "^4.8.3"
   }
 }
