@@ -7,6 +7,7 @@ import cors from "cors";
 import { config } from "./config/env.js";
 import { authRouter } from "./routes/auth.routes.js";
 import { rideRouter } from "./routes/ride.routes.js";
+import { driverRouter } from "./routes/driver.routes.js";
 
 const app = express();
 
@@ -30,6 +31,9 @@ app.use("/api/auth", authRouter);
 
 // Ride routes: book a ride (more added later). Prefix /api/rides.
 app.use("/api/rides", rideRouter);
+
+// Driver routes: register/read the driver's own vehicle profile. Prefix /api/drivers.
+app.use("/api/drivers", driverRouter);
 
 // Export the built app so index.js (and later, tests) can use it.
 export { app };

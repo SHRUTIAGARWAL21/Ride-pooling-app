@@ -1,7 +1,10 @@
 // The RECEPTIONIST for rides. Reads req, validates, calls the service, replies.
 
 import { createRideForRider } from "../services/ride.service.js";
-import { estimateAllFares, isKnownVehicleType } from "../services/fare.service.js";
+import {
+  estimateAllFares,
+  isKnownVehicleType,
+} from "../services/fare.service.js";
 
 // Latitude ranges -90..90; longitude -180..180. Number.isFinite blocks
 // NaN/Infinity/strings.
@@ -38,7 +41,9 @@ export async function estimateRides(req, res) {
 
   const errors = validatePoints(pickup, dropoff);
   if (errors.length > 0) {
-    return res.status(400).json({ error: "Validation failed", details: errors });
+    return res
+      .status(400)
+      .json({ error: "Validation failed", details: errors });
   }
 
   // Pure calculation, so no try/catch around a database call is needed.
@@ -55,7 +60,9 @@ export async function createRide(req, res) {
   if (!isKnownVehicleType(vehicleType))
     errors.push("vehicleType must be one of: car, auto, bike");
   if (errors.length > 0) {
-    return res.status(400).json({ error: "Validation failed", details: errors });
+    return res
+      .status(400)
+      .json({ error: "Validation failed", details: errors });
   }
 
   try {
