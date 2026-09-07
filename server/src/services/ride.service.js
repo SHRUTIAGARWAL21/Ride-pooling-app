@@ -39,7 +39,11 @@ export async function createRideForRider({ riderId, pickup, dropoff, vehicleType
 
     return tx.ride.findUnique({
       where: { id: created.id },
-      include: { passengers: true },
+      // Include passengers, and each passenger's rider NAME only (never email
+      // or hash). Dispatch uses this to show a driver who is requesting.
+      include: {
+        passengers: { include: { rider: { select: { name: true } } } },
+      },
     });
   });
 

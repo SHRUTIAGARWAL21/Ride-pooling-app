@@ -5,6 +5,7 @@ import {
   estimateAllFares,
   isKnownVehicleType,
 } from "../services/fare.service.js";
+import { dispatchRideRequest } from "../sockets/dispatch.js";
 
 // Latitude ranges -90..90; longitude -180..180. Number.isFinite blocks
 // NaN/Infinity/strings.
@@ -74,6 +75,14 @@ export async function createRide(req, res) {
       dropoff,
       vehicleType,
     });
+
+    // Push the offer to online drivers of this type. It is a side-effect:
+    // wrapped so a socket hiccup can never fail a booking that already saved.
+    try {
+      dispatchRideRequest(ride);
+    } catch (e) {
+      console.error("dispatch failed:", e);
+    }
 
     return res.status(201).json({ ride, distanceKm });
   } catch (err) {
