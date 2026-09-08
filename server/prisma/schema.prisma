@@ -91,6 +91,11 @@ model Ride {
   // row when this column was added; new rides always set it explicitly.
   vehicleType VehicleType @default(car)
 
+  // A short PIN the rider shows the driver at pickup. Set when a driver
+  // ACCEPTS; checked at Start; cleared on Start or driver-cancel. The rider
+  // sees it (via ride:accepted); the driver must NEVER receive it from us.
+  startPin String?
+
   pickupLat      Float
   pickupLng      Float
   pickupAddress  String

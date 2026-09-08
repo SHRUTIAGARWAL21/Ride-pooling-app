@@ -54,6 +54,9 @@ export function notifyRideAccepted(ride) {
     io.to(`rider:${riderId}`).emit("ride:accepted", {
       rideId: ride.id,
       status: ride.status,
+      // The rider needs the PIN to hand to the driver at pickup. This event
+      // goes ONLY to the rider's room, so the driver never sees it.
+      startPin: ride.startPin,
       driver: {
         name: d?.name,
         phone: d?.phone,

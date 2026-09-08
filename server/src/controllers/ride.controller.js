@@ -120,13 +120,16 @@ export async function acceptRide(req, res) {
       return res.status(409).json({ error: "This ride is no longer available" });
 
     // Success: push the news over sockets (side-effect; never fail the 200).
+    // notifyRideAccepted sends the PIN to the RIDER (via ride:accepted).
     try {
       notifyRideAccepted(result.ride);
     } catch (e) {
       console.error("notifyRideAccepted failed:", e);
     }
 
-    return res.json({ ride: result.ride });
+    // Strip the PIN before replying to the DRIVER — they must never receive it.
+    const { startPin, ...rideForDriver } = result.ride;
+    return res.json({ ride: rideForDriver });
   } catch (err) {
     console.error("acceptRide error:", err);
     return res.status(500).json({ error: "Something went wrong" });
@@ -137,12 +140,15 @@ export async function acceptRide(req, res) {
 export async function startRide(req, res) {
   const rideId = req.params.id;
   const driverId = req.user.id;
+  const { pin } = req.body ?? {}; // the PIN the rider gave the driver at pickup
   try {
-    const result = await startRideByDriver({ rideId, driverId });
+    const result = await startRideByDriver({ rideId, driverId, pin });
     if (result.status === "not_found")
       return res.status(404).json({ error: "Ride not found" });
     if (result.status === "conflict")
       return res.status(409).json({ error: "This ride cannot be started" });
+    if (result.status === "bad_pin")
+      return res.status(400).json({ error: "Incorrect PIN" });
 
     try {
       notifyRideStatus(result.ride); // tell the rider: in_progress

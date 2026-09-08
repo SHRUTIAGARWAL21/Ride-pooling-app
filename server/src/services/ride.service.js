@@ -1,5 +1,6 @@
 // The WORKER for rides. Business logic only — no HTTP here.
 
+import { randomInt } from "node:crypto";
 import { prisma } from "../config/prisma.js";
 import { estimateFare } from "./fare.service.js";
 import { getDriverProfile } from "./driver.service.js";
@@ -63,6 +64,11 @@ export async function acceptRideForDriver({ rideId, driverId }) {
   const profile = await getDriverProfile(driverId);
   if (!profile) return { status: "no_profile" };
 
+  // Make the pickup PIN now, at accept. The rider will receive it (via the
+  // ride:accepted event); the driver never gets it from us. It proves, at
+  // Start, that the driver actually met the rider.
+  const pin = generatePin();
+
   // THE ATOMIC CLAIM. This is ONE database UPDATE with the conditions in the
   // WHERE. Only a row that is still requested, unclaimed, AND matches this
   // driver's vehicle type is changed. The database runs concurrent updates
@@ -75,7 +81,7 @@ export async function acceptRideForDriver({ rideId, driverId }) {
       driverId: null,
       vehicleType: profile.vehicleType,
     },
-    data: { status: "accepted", driverId },
+    data: { status: "accepted", driverId, startPin: pin },
   });
 
   if (result.count === 0) {
@@ -114,17 +120,30 @@ function loadRideWithPeople(rideId) {
   });
 }
 
+// A random 4-digit PIN as a string, e.g. "0427". randomInt is unbiased and
+// comes from Node's crypto module (better than Math.random for this).
+function generatePin() {
+  return String(randomInt(0, 10000)).padStart(4, "0");
+}
+
 // accepted -> in_progress. Only the ride's OWN driver, only while accepted.
 // (driverId in the where = ownership; status in the where = the allowed state.)
-export async function startRideByDriver({ rideId, driverId }) {
+export async function startRideByDriver({ rideId, driverId, pin }) {
+  // The PIN is part of the WHERE: the ride starts only if the submitted pin
+  // matches the stored one. We also clear the pin so it cannot be reused.
   const result = await prisma.ride.updateMany({
-    where: { id: rideId, driverId, status: "accepted" },
-    data: { status: "in_progress", startedAt: new Date() },
+    where: { id: rideId, driverId, status: "accepted", startPin: pin },
+    data: { status: "in_progress", startedAt: new Date(), startPin: null },
   });
   if (result.count === 0) {
+    // Find out WHY it did not start.
     const existing = await prisma.ride.findUnique({ where: { id: rideId } });
     if (!existing) return { status: "not_found" };
-    return { status: "conflict" };
+    // Wrong driver, or not in the accepted state -> a plain conflict.
+    if (existing.driverId !== driverId || existing.status !== "accepted")
+      return { status: "conflict" };
+    // It IS this driver's accepted ride, so the only thing left is a bad PIN.
+    return { status: "bad_pin" };
   }
   return { status: "started", ride: await loadRideWithPeople(rideId) };
 }
@@ -134,7 +153,7 @@ export async function startRideByDriver({ rideId, driverId }) {
 export async function driverCancelRide({ rideId, driverId }) {
   const result = await prisma.ride.updateMany({
     where: { id: rideId, driverId, status: "accepted" },
-    data: { status: "requested", driverId: null },
+    data: { status: "requested", driverId: null, startPin: null },
   });
   if (result.count === 0) {
     const existing = await prisma.ride.findUnique({ where: { id: rideId } });
