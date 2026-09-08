@@ -7,6 +7,7 @@ import {
   acceptRide,
   startRide,
   cancelRide,
+  completeRide,
 } from "../controllers/ride.controller.js";
 import { requireAuth, requireRole } from "../middleware/auth.middleware.js";
 
@@ -28,5 +29,8 @@ router.patch("/:id/start", requireAuth, requireRole("driver"), startRide);
 // Cancel a ride. BOTH roles allowed; the controller branches on role:
 // driver -> re-open (re-dispatch); rider -> terminate.
 router.patch("/:id/cancel", requireAuth, cancelRide);
+
+// A driver completes the ride at the destination. in_progress -> completed.
+router.patch("/:id/complete", requireAuth, requireRole("driver"), completeRide);
 
 export { router as rideRouter };

@@ -6,6 +6,7 @@ import {
   startRideByDriver,
   driverCancelRide,
   riderCancelRide,
+  completeRideByDriver,
 } from "../services/ride.service.js";
 import {
   estimateAllFares,
@@ -207,6 +208,29 @@ export async function cancelRide(req, res) {
     return res.json({ ride: result.ride });
   } catch (err) {
     console.error("cancelRide error:", err);
+    return res.status(500).json({ error: "Something went wrong" });
+  }
+}
+
+// A driver completes the ride at the destination. PATCH /api/rides/:id/complete
+export async function completeRide(req, res) {
+  const rideId = req.params.id;
+  const driverId = req.user.id;
+  try {
+    const result = await completeRideByDriver({ rideId, driverId });
+    if (result.status === "not_found")
+      return res.status(404).json({ error: "Ride not found" });
+    if (result.status === "conflict")
+      return res.status(409).json({ error: "This ride cannot be completed" });
+
+    try {
+      notifyRideStatus(result.ride); // tell the rider (and driver): completed
+    } catch (e) {
+      console.error("notify failed:", e);
+    }
+    return res.json({ ride: result.ride });
+  } catch (err) {
+    console.error("completeRide error:", err);
     return res.status(500).json({ error: "Something went wrong" });
   }
 }

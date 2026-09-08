@@ -188,3 +188,30 @@ export async function riderCancelRide({ rideId, riderId }) {
   }
   return { status: "cancelled", ride: await loadRideWithPeople(rideId) };
 }
+
+// in_progress -> completed. Only the ride's OWN driver, only while in_progress.
+// Then finalize the fare on each passenger row.
+export async function completeRideByDriver({ rideId, driverId }) {
+  const result = await prisma.ride.updateMany({
+    where: { id: rideId, driverId, status: "in_progress" },
+    data: { status: "completed", completedAt: new Date() },
+  });
+  if (result.count === 0) {
+    const existing = await prisma.ride.findUnique({ where: { id: rideId } });
+    if (!existing) return { status: "not_found" };
+    return { status: "conflict" };
+  }
+
+  // Finalize the fare. No pooling yet, so the single rider pays the FULL fare.
+  // (When pooling arrives, we will divide fareTotal by the number of riders.)
+  const priced = await prisma.ride.findUnique({
+    where: { id: rideId },
+    select: { fareTotal: true },
+  });
+  await prisma.ridePassenger.updateMany({
+    where: { rideId },
+    data: { fareShare: priced.fareTotal },
+  });
+
+  return { status: "completed", ride: await loadRideWithPeople(rideId) };
+}
