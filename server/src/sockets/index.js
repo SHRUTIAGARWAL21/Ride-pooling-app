@@ -41,10 +41,14 @@ export function initSocket(httpServer) {
       socket.user.role,
     );
 
-    // A RIDER joins their own private room right away, to receive updates
-    // about THEIR ride (e.g. "ride:accepted") later.
+    // Each user joins their OWN private room, so we can message ONE specific
+    // person later. A rider hears about THEIR ride; a driver hears when, say,
+    // a rider cancels the ride that driver had accepted. This is separate from
+    // the "drivers:<type>" pool, which a driver joins only on "Go online".
     if (socket.user.role === "rider") {
       socket.join(`rider:${socket.user.id}`);
+    } else if (socket.user.role === "driver") {
+      socket.join(`driver:${socket.user.id}`);
     }
 
     // A DRIVER taps "Go online" -> this event. We put them in the room for

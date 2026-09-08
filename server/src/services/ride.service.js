@@ -10,43 +10,46 @@ export async function createRideForRider({ riderId, pickup, dropoff, vehicleType
   // never accepts a fare from the client.
   const { distanceKm, fareTotal } = estimateFare(pickup, dropoff, vehicleType);
 
-  // $transaction wraps the writes so they are ALL-OR-NOTHING. If any line
-  // inside throws, every write already made is rolled back.
-  const ride = await prisma.$transaction(async (tx) => {
-    const created = await tx.ride.create({
-      data: {
-        status: "requested",
-        vehicleType, // remember which service was booked
-        pickupLat: pickup.lat,
-        pickupLng: pickup.lng,
-        pickupAddress: pickup.address,
-        dropoffLat: dropoff.lat,
-        dropoffLng: dropoff.lng,
-        dropoffAddress: dropoff.address,
-        fareTotal,
-      },
-    });
+  // $transaction wraps the two WRITES so they are ALL-OR-NOTHING. We keep it
+  // short — only the writes — and read the full ride afterwards. A short
+  // transaction avoids timeouts on a far/cold cloud database. The options
+  // give extra headroom: maxWait = how long to wait for a free connection,
+  // timeout = how long the transaction may run.
+  const created = await prisma.$transaction(
+    async (tx) => {
+      const ride = await tx.ride.create({
+        data: {
+          status: "requested",
+          vehicleType, // remember which service was booked
+          pickupLat: pickup.lat,
+          pickupLng: pickup.lng,
+          pickupAddress: pickup.address,
+          dropoffLat: dropoff.lat,
+          dropoffLng: dropoff.lng,
+          dropoffAddress: dropoff.address,
+          fareTotal,
+        },
+      });
 
-    await tx.ridePassenger.create({
-      data: {
-        rideId: created.id,
-        riderId,
-        pickupLat: pickup.lat,
-        pickupLng: pickup.lng,
-        dropoffLat: dropoff.lat,
-        dropoffLng: dropoff.lng,
-      },
-    });
+      await tx.ridePassenger.create({
+        data: {
+          rideId: ride.id,
+          riderId,
+          pickupLat: pickup.lat,
+          pickupLng: pickup.lng,
+          dropoffLat: dropoff.lat,
+          dropoffLng: dropoff.lng,
+        },
+      });
 
-    return tx.ride.findUnique({
-      where: { id: created.id },
-      // Include passengers, and each passenger's rider NAME only (never email
-      // or hash). Dispatch uses this to show a driver who is requesting.
-      include: {
-        passengers: { include: { rider: { select: { name: true } } } },
-      },
-    });
-  });
+      return ride; // just the id we need; full read happens below
+    },
+    { maxWait: 10000, timeout: 20000 },
+  );
+
+  // Read the full ride (with passengers + rider name) OUTSIDE the transaction.
+  // This read needs no transactional guarantee, so it does not belong inside.
+  const ride = await loadRideWithPeople(created.id);
 
   return { ride, distanceKm };
 }
@@ -100,4 +103,69 @@ export async function acceptRideForDriver({ rideId, driverId }) {
   });
 
   return { status: "accepted", ride };
+}
+
+// Load a ride with the extra data our notifications and re-dispatch need:
+// the passenger row (its riderId) and the rider's name.
+function loadRideWithPeople(rideId) {
+  return prisma.ride.findUnique({
+    where: { id: rideId },
+    include: { passengers: { include: { rider: { select: { name: true } } } } },
+  });
+}
+
+// accepted -> in_progress. Only the ride's OWN driver, only while accepted.
+// (driverId in the where = ownership; status in the where = the allowed state.)
+export async function startRideByDriver({ rideId, driverId }) {
+  const result = await prisma.ride.updateMany({
+    where: { id: rideId, driverId, status: "accepted" },
+    data: { status: "in_progress", startedAt: new Date() },
+  });
+  if (result.count === 0) {
+    const existing = await prisma.ride.findUnique({ where: { id: rideId } });
+    if (!existing) return { status: "not_found" };
+    return { status: "conflict" };
+  }
+  return { status: "started", ride: await loadRideWithPeople(rideId) };
+}
+
+// DRIVER cancels while accepted -> back to the pool. accepted -> requested,
+// driver cleared. The controller then RE-DISPATCHES the offer.
+export async function driverCancelRide({ rideId, driverId }) {
+  const result = await prisma.ride.updateMany({
+    where: { id: rideId, driverId, status: "accepted" },
+    data: { status: "requested", driverId: null },
+  });
+  if (result.count === 0) {
+    const existing = await prisma.ride.findUnique({ where: { id: rideId } });
+    if (!existing) return { status: "not_found" };
+    return { status: "conflict" };
+  }
+  return { status: "reopened", ride: await loadRideWithPeople(rideId) };
+}
+
+// RIDER cancels -> terminate. Allowed while requested OR accepted, and ONLY
+// if the caller is actually a passenger of this ride.
+export async function riderCancelRide({ rideId, riderId }) {
+  const result = await prisma.ride.updateMany({
+    where: {
+      id: rideId,
+      status: { in: ["requested", "accepted"] },
+      // A RELATION filter: match only if this ride has a passenger row for
+      // this rider. That is the ownership check, done inside the same query.
+      passengers: { some: { riderId } },
+    },
+    data: { status: "cancelled" },
+  });
+  if (result.count === 0) {
+    const existing = await prisma.ride.findUnique({
+      where: { id: rideId },
+      include: { passengers: true },
+    });
+    if (!existing) return { status: "not_found" };
+    const isPassenger = existing.passengers.some((p) => p.riderId === riderId);
+    if (!isPassenger) return { status: "forbidden" };
+    return { status: "conflict" }; // already started / completed / cancelled
+  }
+  return { status: "cancelled", ride: await loadRideWithPeople(rideId) };
 }

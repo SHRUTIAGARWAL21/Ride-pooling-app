@@ -70,3 +70,24 @@ export function notifyRideAccepted(ride) {
     acceptedBy: ride.driverId,
   });
 }
+
+// Push a status change to the people who care. Used by start / driver-cancel
+// (re-open) / rider-cancel. The passed "ride" must include passengers.
+export function notifyRideStatus(ride) {
+  const io = getIO();
+  const riderId = ride.passengers?.[0]?.riderId;
+  const payload = { rideId: ride.id, status: ride.status };
+
+  // The rider always cares about their ride's status.
+  if (riderId) io.to(`rider:${riderId}`).emit("ride:status", payload);
+
+  // If a driver is assigned, tell them too (e.g. the rider cancelled on them).
+  if (ride.driverId) {
+    io.to(`driver:${ride.driverId}`).emit("ride:status", payload);
+  }
+
+  // If the ride is cancelled, also clear any offer still showing to the pool.
+  if (ride.status === "cancelled") {
+    io.to(`drivers:${ride.vehicleType}`).emit("ride:taken", { rideId: ride.id });
+  }
+}

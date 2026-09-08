@@ -3,6 +3,9 @@
 import {
   createRideForRider,
   acceptRideForDriver,
+  startRideByDriver,
+  driverCancelRide,
+  riderCancelRide,
 } from "../services/ride.service.js";
 import {
   estimateAllFares,
@@ -11,6 +14,7 @@ import {
 import {
   dispatchRideRequest,
   notifyRideAccepted,
+  notifyRideStatus,
 } from "../sockets/dispatch.js";
 
 // Latitude ranges -90..90; longitude -180..180. Number.isFinite blocks
@@ -125,6 +129,78 @@ export async function acceptRide(req, res) {
     return res.json({ ride: result.ride });
   } catch (err) {
     console.error("acceptRide error:", err);
+    return res.status(500).json({ error: "Something went wrong" });
+  }
+}
+
+// A driver starts the ride they accepted. PATCH /api/rides/:id/start
+export async function startRide(req, res) {
+  const rideId = req.params.id;
+  const driverId = req.user.id;
+  try {
+    const result = await startRideByDriver({ rideId, driverId });
+    if (result.status === "not_found")
+      return res.status(404).json({ error: "Ride not found" });
+    if (result.status === "conflict")
+      return res.status(409).json({ error: "This ride cannot be started" });
+
+    try {
+      notifyRideStatus(result.ride); // tell the rider: in_progress
+    } catch (e) {
+      console.error("notify failed:", e);
+    }
+    return res.json({ ride: result.ride });
+  } catch (err) {
+    console.error("startRide error:", err);
+    return res.status(500).json({ error: "Something went wrong" });
+  }
+}
+
+// Cancel a ride. WHO cancels (from the trusted token role) decides what happens:
+//   driver -> put the ride back in the pool (re-dispatch)
+//   rider  -> terminate the ride
+export async function cancelRide(req, res) {
+  const rideId = req.params.id;
+  try {
+    if (req.user.role === "driver") {
+      const result = await driverCancelRide({ rideId, driverId: req.user.id });
+      if (result.status === "not_found")
+        return res.status(404).json({ error: "Ride not found" });
+      if (result.status === "conflict")
+        return res
+          .status(409)
+          .json({ error: "This ride can no longer be cancelled" });
+
+      // Back in the pool: re-offer to drivers, and tell the rider we are
+      // searching again. Same dispatch function used at first booking.
+      try {
+        dispatchRideRequest(result.ride);
+        notifyRideStatus(result.ride);
+      } catch (e) {
+        console.error("notify failed:", e);
+      }
+      return res.json({ ride: result.ride });
+    }
+
+    // rider path -> terminate
+    const result = await riderCancelRide({ rideId, riderId: req.user.id });
+    if (result.status === "not_found")
+      return res.status(404).json({ error: "Ride not found" });
+    if (result.status === "forbidden")
+      return res.status(403).json({ error: "This is not your ride" });
+    if (result.status === "conflict")
+      return res
+        .status(409)
+        .json({ error: "This ride can no longer be cancelled" });
+
+    try {
+      notifyRideStatus(result.ride); // tell driver (if any) + clear the pool
+    } catch (e) {
+      console.error("notify failed:", e);
+    }
+    return res.json({ ride: result.ride });
+  } catch (err) {
+    console.error("cancelRide error:", err);
     return res.status(500).json({ error: "Something went wrong" });
   }
 }
