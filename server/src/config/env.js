@@ -32,4 +32,9 @@ export const config = {
     auto: { baseFare: 25, perKmRate: 9 },
     car: { baseFare: 40, perKmRate: 14 },
   },
+
+  // Timeout sweeper (both configurable). The sweeper cancels a ride that has
+  // stayed "requested" (nobody accepted) longer than rideTimeoutMs.
+  sweepIntervalMs: Number(optional("SWEEP_INTERVAL_MS", "30000")), // run every 30s
+  rideTimeoutMs: Number(optional("RIDE_TIMEOUT_MS", "120000")), // give up after 2 min
 };

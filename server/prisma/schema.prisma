@@ -111,8 +111,16 @@ model Ride {
   startedAt   DateTime?
   completedAt DateTime?
 
+  // When the ride last ENTERED the requested state: set at creation and again
+  // on driver-cancel (re-open). The timeout sweeper measures the wait from
+  // HERE, not createdAt, so a re-opened ride gets a fresh, fair timer.
+  requestedAt DateTime @default(now())
+
   passengers RidePassenger[]
 
+  // Makes the sweeper's "requested AND old" lookup fast: the DB jumps to the
+  // matching rows instead of scanning the whole table.
+  @@index([status, requestedAt])
   @@map("rides")
 }
 

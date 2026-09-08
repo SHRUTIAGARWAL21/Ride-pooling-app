@@ -2,6 +2,7 @@
 
 import { randomInt } from "node:crypto";
 import { prisma } from "../config/prisma.js";
+import { config } from "../config/env.js";
 import { estimateFare } from "./fare.service.js";
 import { getDriverProfile } from "./driver.service.js";
 
@@ -153,7 +154,12 @@ export async function startRideByDriver({ rideId, driverId, pin }) {
 export async function driverCancelRide({ rideId, driverId }) {
   const result = await prisma.ride.updateMany({
     where: { id: rideId, driverId, status: "accepted" },
-    data: { status: "requested", driverId: null, startPin: null },
+    data: {
+      status: "requested",
+      driverId: null,
+      startPin: null,
+      requestedAt: new Date(), // reset the wait clock: a fresh timer in the pool
+    },
   });
   if (result.count === 0) {
     const existing = await prisma.ride.findUnique({ where: { id: rideId } });
@@ -214,4 +220,31 @@ export async function completeRideByDriver({ rideId, driverId }) {
   });
 
   return { status: "completed", ride: await loadRideWithPeople(rideId) };
+}
+
+// Cancel every ride that has waited too long in the requested state. The
+// background sweeper calls this on a timer (no request triggers it). Returns
+// the rides it actually cancelled, so the caller can notify each rider.
+export async function expireStaleRides() {
+  // "Too old" = it entered the requested state before this moment.
+  const cutoff = new Date(Date.now() - config.rideTimeoutMs);
+
+  // Find the candidates, with the rider included so we can notify them.
+  const stale = await prisma.ride.findMany({
+    where: { status: "requested", requestedAt: { lt: cutoff } },
+    include: { passengers: { include: { rider: { select: { name: true } } } } },
+  });
+
+  const cancelled = [];
+  for (const ride of stale) {
+    // Cancel each one SAFELY: only if it is STILL requested and still old.
+    // If a driver accepted it a split second ago, this changes 0 rows and we
+    // skip it — no wrongful cancel. (The same atomic trick as everywhere.)
+    const res = await prisma.ride.updateMany({
+      where: { id: ride.id, status: "requested", requestedAt: { lt: cutoff } },
+      data: { status: "cancelled" },
+    });
+    if (res.count === 1) cancelled.push({ ...ride, status: "cancelled" });
+  }
+  return cancelled;
 }
