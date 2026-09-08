@@ -40,3 +40,33 @@ export function dispatchRideRequest(ride) {
   console.log(`[dispatch] ride ${ride.id} -> ${room} (${recipients} online)`);
   return recipients;
 }
+
+// After a driver accepts: tell the rider WHO is coming, and tell the OTHER
+// online drivers the ride is gone so their offer disappears.
+// The passed "ride" must include driver (+ driverProfile) and passengers.
+export function notifyRideAccepted(ride) {
+  const io = getIO();
+  const riderId = ride.passengers?.[0]?.riderId;
+  const d = ride.driver;
+
+  // 1) To the rider's own room: the driver + vehicle details they asked for.
+  if (riderId) {
+    io.to(`rider:${riderId}`).emit("ride:accepted", {
+      rideId: ride.id,
+      status: ride.status,
+      driver: {
+        name: d?.name,
+        phone: d?.phone,
+        vehicleType: d?.driverProfile?.vehicleType,
+        vehicleNumber: d?.driverProfile?.vehicleNumber,
+      },
+    });
+  }
+
+  // 2) To the drivers' room: this ride is taken. We include who took it, so
+  // the winning driver's own app can tell the "taken" was caused by them.
+  io.to(`drivers:${ride.vehicleType}`).emit("ride:taken", {
+    rideId: ride.id,
+    acceptedBy: ride.driverId,
+  });
+}

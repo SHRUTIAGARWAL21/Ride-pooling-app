@@ -1,11 +1,17 @@
 // The RECEPTIONIST for rides. Reads req, validates, calls the service, replies.
 
-import { createRideForRider } from "../services/ride.service.js";
+import {
+  createRideForRider,
+  acceptRideForDriver,
+} from "../services/ride.service.js";
 import {
   estimateAllFares,
   isKnownVehicleType,
 } from "../services/fare.service.js";
-import { dispatchRideRequest } from "../sockets/dispatch.js";
+import {
+  dispatchRideRequest,
+  notifyRideAccepted,
+} from "../sockets/dispatch.js";
 
 // Latitude ranges -90..90; longitude -180..180. Number.isFinite blocks
 // NaN/Infinity/strings.
@@ -87,6 +93,38 @@ export async function createRide(req, res) {
     return res.status(201).json({ ride, distanceKm });
   } catch (err) {
     console.error("createRide error:", err);
+    return res.status(500).json({ error: "Something went wrong" });
+  }
+}
+
+// A driver claims a requested ride. PATCH /api/rides/:id/accept
+export async function acceptRide(req, res) {
+  const rideId = req.params.id; // from the URL (:id)
+  const driverId = req.user.id; // from the token (the logged-in driver)
+
+  try {
+    const result = await acceptRideForDriver({ rideId, driverId });
+
+    // Map the worker's result to the right HTTP status.
+    if (result.status === "no_profile")
+      return res
+        .status(400)
+        .json({ error: "Register a vehicle before accepting rides" });
+    if (result.status === "not_found")
+      return res.status(404).json({ error: "Ride not found" });
+    if (result.status === "conflict")
+      return res.status(409).json({ error: "This ride is no longer available" });
+
+    // Success: push the news over sockets (side-effect; never fail the 200).
+    try {
+      notifyRideAccepted(result.ride);
+    } catch (e) {
+      console.error("notifyRideAccepted failed:", e);
+    }
+
+    return res.json({ ride: result.ride });
+  } catch (err) {
+    console.error("acceptRide error:", err);
     return res.status(500).json({ error: "Something went wrong" });
   }
 }

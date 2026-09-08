@@ -1,7 +1,11 @@
 // The MAP for ride routes. Connects URLs to controllers, behind guards.
 
 import { Router } from "express";
-import { estimateRides, createRide } from "../controllers/ride.controller.js";
+import {
+  estimateRides,
+  createRide,
+  acceptRide,
+} from "../controllers/ride.controller.js";
 import { requireAuth, requireRole } from "../middleware/auth.middleware.js";
 
 const router = Router();
@@ -12,5 +16,8 @@ router.post("/estimate", requireAuth, requireRole("rider"), estimateRides);
 
 // STEP 2: book the chosen option. Full URL: POST /api/rides
 router.post("/", requireAuth, requireRole("rider"), createRide);
+
+// A driver claims a requested ride. Full URL: PATCH /api/rides/:id/accept
+router.patch("/:id/accept", requireAuth, requireRole("driver"), acceptRide);
 
 export { router as rideRouter };
