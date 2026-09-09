@@ -37,4 +37,8 @@ export const config = {
   // stayed "requested" (nobody accepted) longer than rideTimeoutMs.
   sweepIntervalMs: Number(optional("SWEEP_INTERVAL_MS", "30000")), // run every 30s
   rideTimeoutMs: Number(optional("RIDE_TIMEOUT_MS", "120000")), // give up after 2 min
+
+  // Assumed average city speed (km/h) for the ROUGH live ETA. We swap this for
+  // a real routing service later (same plan as the straight-line fare).
+  avgSpeedKmh: Number(optional("AVG_SPEED_KMH", "25")),
 };

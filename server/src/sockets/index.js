@@ -2,8 +2,15 @@
 
 import { Server } from "socket.io";
 import { config } from "../config/env.js";
+import { prisma } from "../config/prisma.js";
 import { verifyToken } from "../utils/jwt.js";
 import { getDriverProfile } from "../services/driver.service.js";
+import { haversineKm } from "../services/fare.service.js";
+
+// Basic coordinate checks — real numbers, valid ranges. Never trust input,
+// even over a socket.
+const isLat = (n) => typeof n === "number" && Number.isFinite(n) && n >= -90 && n <= 90;
+const isLng = (n) => typeof n === "number" && Number.isFinite(n) && n >= -180 && n <= 180;
 
 // Module-level holder so other files can grab the server via getIO() and emit.
 let io;
@@ -84,6 +91,57 @@ export function initSocket(httpServer) {
       socket.data.onlineRoom = null;
       socket.emit("driver:offline", { room });
       console.log(`[socket] driver offline: ${socket.user.id} -> ${room}`);
+    });
+
+    // A DRIVER streams GPS while driving. We verify it, compute a rough ETA,
+    // and relay it to the ride's rider. Nothing is stored — it passes through.
+    socket.on("driver:updateLocation", async ({ rideId, lat, lng } = {}) => {
+      if (socket.user.role !== "driver") return; // only drivers send location
+      if (!isLat(lat) || !isLng(lng)) return; // ignore junk coordinates
+
+      // Load only what we need: who owns it, its state, both ends, the rider.
+      // Lookup is by primary key, so it is fast even per update.
+      const ride = await prisma.ride.findUnique({
+        where: { id: rideId },
+        select: {
+          driverId: true,
+          status: true,
+          pickupLat: true,
+          pickupLng: true,
+          dropoffLat: true,
+          dropoffLng: true,
+          passengers: { select: { riderId: true } },
+        },
+      });
+
+      // Must be THIS driver's ride, and only while it is actually live.
+      if (!ride || ride.driverId !== socket.user.id) return;
+      if (ride.status !== "accepted" && ride.status !== "in_progress") return;
+
+      // Where is the driver headed right now?
+      //   accepted    -> to the PICKUP  (going to fetch the rider)
+      //   in_progress -> to the DROPOFF (taking the rider there)
+      const heading = ride.status === "in_progress" ? "dropoff" : "pickup";
+      const target =
+        heading === "dropoff"
+          ? { lat: ride.dropoffLat, lng: ride.dropoffLng }
+          : { lat: ride.pickupLat, lng: ride.pickupLng };
+
+      // Rough ETA: straight-line distance / assumed speed, in minutes (min 1).
+      const km = haversineKm({ lat, lng }, target);
+      const etaMinutes = Math.max(1, Math.round((km / config.avgSpeedKmh) * 60));
+
+      // Relay to the rider's room ONLY — the bridge between the two phones.
+      const riderId = ride.passengers[0]?.riderId;
+      if (riderId) {
+        io.to(`rider:${riderId}`).emit("driver:location", {
+          rideId,
+          lat,
+          lng,
+          heading,
+          etaMinutes,
+        });
+      }
     });
 
     // On hang-up, Socket.io removes this socket from ALL rooms automatically.
